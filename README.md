@@ -1,13 +1,17 @@
 # Frame Generator
 
-    pip install -r requirements.txt
-    python app.py          # buka http://localhost:5000
+Upload Excel berisi link gambar + frame -> foto utama produk otomatis ditempel di frame baru.
 
-1. Upload Excel (kolom link gambar terdeteksi otomatis; SKU & Deskripsi ikut dibaca).
-2. Upload frame -> area kosong putih terdeteksi otomatis (kotak oranye, bisa digeser/diubah ukurannya).
-3. Generate -> unduh satuan atau ZIP (berisi gambar + hasil.xlsx ringkasan status).
+**Versi web (GitHub Pages):** https://mr-blacklotus.github.io/generate-frame/
 
-Cara kerja: foto diunduh, foto utama dipisah dari background (background seragam -> deteksi tepi;
-background rumit -> GrabCut, atau rembg bila terpasang), lalu diskalakan dan dipusatkan di area frame
-dengan bayangan lembut. Server tidak mengizinkan link ke alamat internal/localhost
-(set ALLOW_PRIVATE_URLS=1 hanya untuk testing).
+Semua diproses di browser (tanpa server): Excel dibaca, gambar diunduh, foto utama dipisah dari
+background, ditempel di area kosong frame (terdeteksi otomatis, bisa digeser), lalu diunduh sebagai ZIP.
+
+## Catatan
+- Jika server gambar tidak mengizinkan akses dari browser (CORS), unduhan otomatis dicoba lewat proxy gambar publik (wsrv.nl).
+- Foto dengan background polos (putih/berwarna) dipotong rapi. Foto dengan background rumit ditempel utuh.
+
+## Versi Python (opsional)
+Folder `python-server/` berisi versi Flask yang juga memakai GrabCut untuk background rumit:
+
+    cd python-server && pip install -r requirements.txt && python app.py

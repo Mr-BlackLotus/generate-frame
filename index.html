@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frame Generator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root{--g:#0a9f2c;--gd:#06661d;--bg:#f4f7f5;--card:#fff;--tx:#14201a;--mu:#5d6b63;--bd:#dbe3de;--err:#c62828}
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--tx)}
+  header{background:linear-gradient(90deg,var(--gd),var(--g));color:#fff;padding:18px 24px}
+  header h1{margin:0;font-size:20px} header p{margin:2px 0 0;opacity:.85;font-size:13px}
+  main{max-width:1180px;margin:0 auto;padding:20px 16px 60px;display:grid;grid-template-columns:380px 1fr;gap:20px}
+  @media(max-width:860px){main{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px}
+  .card h2{margin:0 0 12px;font-size:15px}
+  .step{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--g);color:#fff;font-size:12px;margin-right:6px}
+  .drop{display:block;border:2px dashed var(--bd);border-radius:10px;padding:14px;text-align:center;cursor:pointer;color:var(--mu);transition:.15s}
+  .drop:hover,.drop.on{border-color:var(--g);background:#f0faf2}
+  .drop b{color:var(--tx);display:block;word-break:break-all}
+  input[type=file]{display:none}
+  .stack>*+*{margin-top:14px}
+  label.row{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:14px}
+  input[type=range]{width:55%;accent-color:var(--g)} select{padding:5px 8px;border:1px solid var(--bd);border-radius:6px}
+  button.primary{width:100%;padding:12px;border:0;border-radius:10px;background:var(--g);color:#fff;font-size:16px;font-weight:600;cursor:pointer}
+  button.primary:disabled{background:#a9b9af;cursor:not-allowed}
+  button.sec{padding:9px 14px;border:1px solid var(--g);color:var(--gd);background:#fff;border-radius:8px;font-weight:600;cursor:pointer}
+  button.sec:disabled{opacity:.5;cursor:wait}
+  .hint{font-size:12.5px;color:var(--mu)}
+  #stage{position:relative;width:100%;max-width:520px;margin:0 auto;user-select:none;touch-action:none;border:1px solid var(--bd);border-radius:8px;overflow:hidden;background:#eee}
+  #stage img{display:block;width:100%}
+  #box{position:absolute;border:2px solid #ff6d00;background:rgba(255,109,0,.10);cursor:move}
+  #box i{position:absolute;right:-7px;bottom:-7px;width:16px;height:16px;border-radius:50%;background:#ff6d00;border:2px solid #fff;cursor:nwse-resize}
+  #empty{padding:60px 10px;text-align:center;color:var(--mu)}
+  .bar{height:10px;background:#e5ece7;border-radius:6px;overflow:hidden;margin:8px 0}
+  .bar div{height:100%;width:0;background:var(--g);transition:width .3s}
+  #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;margin-top:14px}
+  .it{border:1px solid var(--bd);border-radius:10px;overflow:hidden;background:#fff}
+  .it img{width:100%;display:block;aspect-ratio:1;object-fit:cover;background:#eee}
+  .it .m{padding:8px 10px;font-size:12.5px}.it .m b{display:block}
+  .it .m span{color:var(--mu);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .it.bad{border-color:var(--err)} .it.bad .ph{aspect-ratio:1;display:grid;place-items:center;color:var(--err);padding:10px;text-align:center;font-size:12.5px;background:#fff5f5}
+  .it.wait .ph{aspect-ratio:1;display:grid;place-items:center;color:var(--mu);background:#f0f3f1}
+  #msg{color:var(--err);font-size:13.5px;min-height:1em}
+  .right{display:flex;flex-direction:column;gap:20px}
+</style>
+</head>
+<body>
+<header><h1>Frame Generator</h1><p>Upload Excel berisi link gambar + frame, foto utama produk otomatis ditempel di frame. Semua diproses di browser Anda.</p></header>
+<main>
+  <div class="stack">
+    <div class="card stack">
+      <h2><span class="step">1</span>Upload Excel</h2>
+      <label class="drop" id="dropX"><input type="file" id="fx" accept=".xlsx,.xlsm,.xls"><b id="nx">Klik atau seret file .xlsx</b><span class="hint">Kolom link gambar terdeteksi otomatis. Jika satu sel berisi banyak link, dipakai link pertama.</span></label>
+    </div>
+    <div class="card stack">
+      <h2><span class="step">2</span>Upload Frame</h2>
+      <label class="drop" id="dropF"><input type="file" id="ff" accept="image/*"><b id="nf">Klik atau seret gambar frame</b><span class="hint">PNG / JPG, area kosong putih dipakai untuk foto.</span></label>
+    </div>
+    <div class="card stack">
+      <h2><span class="step">3</span>Pengaturan</h2>
+      <label class="row">Jarak tepi <input type="range" id="pad" min="0" max="20" value="6"><span id="padv">6%</span></label>
+      <label class="row">Bayangan lembut <input type="checkbox" id="shadow" checked></label>
+      <label class="row">Hapus background foto <input type="checkbox" id="rmbg" checked></label>
+      <label class="row">Format hasil <select id="fmt"><option value="jpg">JPG</option><option value="png">PNG</option></select></label>
+      <button class="primary" id="go" disabled>Generate</button>
+      <div id="msg"></div>
+    </div>
+  </div>
+
+  <div class="right">
+    <div class="card">
+      <h2>Area penempatan foto</h2>
+      <div id="stage"><div id="empty">Upload frame untuk melihat area penempatan</div></div>
+      <p class="hint" style="text-align:center">Kotak oranye = area foto (terdeteksi otomatis). Geser untuk memindah, tarik titik di pojok untuk mengubah ukuran.</p>
+    </div>
+    <div class="card" id="resCard" hidden>
+      <h2>Hasil</h2>
+      <div id="stat" class="hint"></div>
+      <div class="bar"><div id="bar"></div></div>
+      <button class="sec" id="zip" hidden>Download semua (ZIP)</button>
+      <div id="grid"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let rect = null, frameImg = null, fw = 0, fh = 0, running = false;
+
+/* ======================= Excel ======================= */
+const URL_RE = /https?:\/\/[^\s,;"'<>]+/i;
+async function readRows(file) {
+  const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+  const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+  if (data.length < 2) throw new Error('Excel kosong');
+  const head = data[0].map(c => String(c).trim().toLowerCase());
+  const find = (...keys) => { const i = head.findIndex(h => keys.some(k => h.includes(k))); return i < 0 ? null : i; };
+  let urlCol = find('link', 'url', 'gambar', 'image', 'foto');
+  if (urlCol === null) {
+    for (let i = 0; i < head.length; i++) if (data.slice(1, 6).some(r => URL_RE.test(String(r[i] ?? '')))) { urlCol = i; break; }
+  }
+  if (urlCol === null) throw new Error('Kolom link gambar tidak ditemukan di Excel');
+  let skuCol = find('sku', 'kode', 'id'); if (skuCol === null && urlCol !== 0) skuCol = 0;
+  const descCol = find('deskripsi', 'description', 'nama', 'name', 'produk');
+  const out = [];
+  data.slice(1).forEach((r, n) => {
+    const m = URL_RE.exec(String(r[urlCol] ?? '')); if (!m) return;
+    const g = c => (c !== null && r[c] !== undefined ? String(r[c]).trim() : '');
+    out.push({ row: n + 2, sku: g(skuCol) || 'row' + (n + 2), desc: g(descCol), url: m[0] });
+  });
+  return out.slice(0, 2000);
+}
+
+/* ======================= Frame: cari area kosong ======================= */
+function findContentRect(img) {
+  const W = img.naturalWidth, H = img.naturalHeight;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(img, 0, 0);
+  const d = x.getImageData(0, 0, W, H).data;
+  const f = 4, w2 = Math.floor(W / f), h2 = Math.floor(H / f);
+  const blk = new Uint8Array(w2 * h2);
+  for (let by = 0; by < h2; by++) for (let bx = 0; bx < w2; bx++) {
+    let ok = 1;
+    for (let yy = 0; yy < f && ok; yy++) for (let xx = 0; xx < f; xx++) {
+      const i = ((by * f + yy) * W + bx * f + xx) * 4;
+      if (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2] < 242 || d[i + 3] < 200) { ok = 0; break; }
+    }
+    blk[by * w2 + bx] = ok;
+  }
+  let best = [0, 0, 0, 0, 0]; const hs = new Int32Array(w2);
+  for (let r = 0; r < h2; r++) {
+    for (let c2 = 0; c2 < w2; c2++) hs[c2] = blk[r * w2 + c2] ? hs[c2] + 1 : 0;
+    const st = [];
+    for (let c2 = 0; c2 <= w2; c2++) {
+      const cur = c2 < w2 ? hs[c2] : 0; let start = c2;
+      while (st.length && st[st.length - 1][1] >= cur) {
+        const [s, hh] = st.pop(); const area = hh * (c2 - s);
+        if (area > best[0]) best = [area, s, r - hh + 1, c2 - s, hh];
+        start = s;
+      }
+      st.push([start, cur]);
+    }
+  }
+  if (best[0] < 0.1 * w2 * h2) return { x: Math.round(W * .1), y: Math.round(H * .1), w: Math.round(W * .8), h: Math.round(H * .8) };
+  return { x: best[1] * f + 2, y: best[2] * f + 2, w: best[3] * f - 4, h: best[4] * f - 4 };
+}
+
+/* ======================= Ambil gambar ======================= */
+async function fetchBitmap(url) {
+  const tries = [url, 'https://wsrv.nl/?url=' + encodeURIComponent(url), 'https://images.weserv.nl/?url=' + encodeURIComponent(url)];
+  let last;
+  for (const u of tries) {
+    try {
+      const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 30000);
+      const r = await fetch(u, { signal: ctl.signal }); clearTimeout(t);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return await createImageBitmap(await r.blob());
+    } catch (e) { last = e; }
+  }
+  throw new Error('Gagal mengunduh gambar (' + (last && last.message || 'diblokir') + ')');
+}
+
+/* ======================= Deteksi foto utama ======================= */
+function morph(m, w, h, r, dilate) {
+  const tmp = new Uint8Array(w * h), out = new Uint8Array(w * h), on = dilate ? 1 : 0;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let v = dilate ? 0 : 1;
+    for (let k = Math.max(0, x - r); k <= Math.min(w - 1, x + r); k++) { if (m[y * w + k] === on) { v = on; break; } }
+    tmp[y * w + x] = v;
+  }
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let v = dilate ? 0 : 1;
+    for (let k = Math.max(0, y - r); k <= Math.min(h - 1, y + r); k++) { if (tmp[k * w + x] === on) { v = on; break; } }
+    out[y * w + x] = v;
+  }
+  return out;
+}
+
+function analyze(bmp) {
+  const sc = Math.min(1, 500 / Math.max(bmp.width, bmp.height));
+  const w = Math.max(1, Math.round(bmp.width * sc)), h = Math.max(1, Math.round(bmp.height * sc));
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const x = c.getContext('2d', { willReadFrequently: true });
+  x.fillStyle = '#fff'; x.fillRect(0, 0, w, h); x.drawImage(bmp, 0, 0, w, h);
+  const d = x.getImageData(0, 0, w, h).data;
+
+  // warna background dari tepi gambar
+  const t = Math.max(2, Math.round(Math.min(w, h) * .02)), edge = [];
+  for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++)
+    if (xx < t || xx >= w - t || yy < t || yy >= h - t) { const i = (yy * w + xx) * 4; edge.push([d[i], d[i + 1], d[i + 2]]); }
+  const med = [0, 1, 2].map(ch => { const a = edge.map(p => p[ch]).sort((p, q) => p - q); return a[a.length >> 1]; });
+  const uniform = edge.filter(p => Math.max(Math.abs(p[0] - med[0]), Math.abs(p[1] - med[1]), Math.abs(p[2] - med[2])) < 30).length / edge.length > .9;
+  if (!uniform) return null;
+
+  let m = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++)
+    m[i] = Math.max(Math.abs(d[i * 4] - med[0]), Math.abs(d[i * 4 + 1] - med[1]), Math.abs(d[i * 4 + 2] - med[2])) > 22 ? 1 : 0;
+  const r = Math.max(1, Math.round(Math.min(w, h) * .006));
+  m = morph(morph(m, w, h, r, true), w, h, r, false);
+
+  // komponen terhubung: buang noise kecil
+  const lab = new Int32Array(w * h), areas = [0]; let n = 0;
+  for (let s = 0; s < w * h; s++) {
+    if (!m[s] || lab[s]) continue;
+    n++; let a = 0; const st = [s]; lab[s] = n;
+    while (st.length) {
+      const p = st.pop(); a++; const px = p % w, py = (p / w) | 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const qx = px + dx, qy = py + dy; if (qx < 0 || qy < 0 || qx >= w || qy >= h) continue;
+        const q = qy * w + qx; if (m[q] && !lab[q]) { lab[q] = n; st.push(q); }
+      }
+    }
+    areas.push(a);
+  }
+  if (!n) return null;
+  const minA = Math.max(.0008 * w * h, .02 * Math.max(...areas.slice(1)));
+  for (let i = 0; i < w * h; i++) m[i] = m[i] && areas[lab[i]] >= minA ? 1 : 0;
+
+  // isi lubang: semua yang tidak terhubung ke tepi luar = bagian produk
+  const out = new Uint8Array(w * h), st = [];
+  const seed = p => { if (!m[p] && !out[p]) { out[p] = 1; st.push(p); } };
+  for (let i = 0; i < w; i++) { seed(i); seed((h - 1) * w + i); }
+  for (let j = 0; j < h; j++) { seed(j * w); seed(j * w + w - 1); }
+  while (st.length) {
+    const p = st.pop(), px = p % w, py = (p / w) | 0;
+    if (px > 0) seed(p - 1); if (px < w - 1) seed(p + 1); if (py > 0) seed(p - w); if (py < h - 1) seed(p + w);
+  }
+  let filled = new Uint8Array(w * h), cnt = 0, x0 = w, y0 = h, x1 = 0, y1 = 0;
+  for (let i = 0; i < w * h; i++) if (!out[i]) {
+    filled[i] = 1; cnt++; const px = i % w, py = (i / w) | 0;
+    if (px < x0) x0 = px; if (px > x1) x1 = px; if (py < y0) y0 = py; if (py > y1) y1 = py;
+  }
+  const ratio = cnt / (w * h);
+  if (ratio < .03 || ratio > .96) return null;
+  const white = Math.min(...med) >= 225;
+  filled = morph(filled, w, h, 1, white);          // putih: sedikit lebih lebar; berwarna: sedikit lebih sempit (buang halo)
+  if (!white) filled = morph(filled, w, h, 1, false);
+  const mc = document.createElement('canvas'); mc.width = w; mc.height = h;
+  const mx = mc.getContext('2d'), id = mx.createImageData(w, h);
+  for (let i = 0; i < w * h; i++) { id.data[i * 4 + 3] = filled[i] ? 255 : 0; }
+  mx.putImageData(id, 0, 0);
+  const mg = Math.round(Math.max(x1 - x0, y1 - y0) * .01);
+  return { sc, w, h, mc, box: [Math.max(0, x0 - mg), Math.max(0, y0 - mg), Math.min(w, x1 + 1 + mg), Math.min(h, y1 + 1 + mg)] };
+}
+
+/* ======================= Komposisi ======================= */
+function compose(bmp, an, o) {
+  const c = document.createElement('canvas'); c.width = fw; c.height = fh;
+  const ctx = c.getContext('2d'); ctx.drawImage(frameImg, 0, 0);
+  let sx = 0, sy = 0, sw = bmp.width, sh = bmp.height;
+  if (an) { const [a, b, e, f] = an.box; sx = a / an.sc; sy = b / an.sc; sw = (e - a) / an.sc; sh = (f - b) / an.sc; }
+  const pad = o.pad / 100, aw = rect.w * (1 - 2 * pad), ah = rect.h * (1 - 2 * pad) * (o.shadow && an ? .97 : 1);
+  const s = Math.min(aw / sw, ah / sh, 3), nw = Math.max(1, Math.round(sw * s)), nh = Math.max(1, Math.round(sh * s));
+  const px = Math.round(rect.x + (rect.w - nw) / 2), py = Math.round(rect.y + (rect.h - nh) / 2);
+
+  const pc = document.createElement('canvas'); pc.width = nw; pc.height = nh;
+  const p = pc.getContext('2d'); p.imageSmoothingQuality = 'high';
+  p.drawImage(bmp, sx, sy, sw, sh, 0, 0, nw, nh);
+  if (an) {
+    p.globalCompositeOperation = 'destination-in'; p.imageSmoothingQuality = 'high';
+    const [a, b, e, f] = an.box; p.drawImage(an.mc, a, b, e - a, f - b, 0, 0, nw, nh);
+    if (o.shadow) {
+      ctx.shadowColor = 'rgba(0,0,0,.30)'; ctx.shadowBlur = Math.max(4, Math.max(nw, nh) * .025); ctx.shadowOffsetY = nh * .014;
+    }
+  }
+  ctx.drawImage(pc, px, py);
+  return c;
+}
+
+/* ======================= UI: file & area ======================= */
+function wireDrop(zone, input, label) {
+  input.addEventListener('change', () => { if (input.files[0]) { $(label).textContent = input.files[0].name; zone.classList.add('on'); check(); } });
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('on'); });
+  zone.addEventListener('dragleave', () => { if (!input.files[0]) zone.classList.remove('on'); });
+  zone.addEventListener('drop', e => { e.preventDefault(); input.files = e.dataTransfer.files; input.dispatchEvent(new Event('change')); });
+}
+wireDrop($('#dropX'), $('#fx'), '#nx'); wireDrop($('#dropF'), $('#ff'), '#nf');
+$('#pad').oninput = e => $('#padv').textContent = e.target.value + '%';
+function check() { $('#go').disabled = running || !($('#fx').files[0] && $('#ff').files[0] && rect); }
+
+$('#ff').addEventListener('change', () => {
+  const f = $('#ff').files[0]; if (!f) return;
+  rect = null; check(); $('#msg').textContent = '';
+  const img = new Image();
+  img.onload = () => {
+    frameImg = img; fw = img.naturalWidth; fh = img.naturalHeight;
+    $('#stage').innerHTML = ''; const v = new Image(); v.src = img.src; $('#stage').append(v);
+    const b = document.createElement('div'); b.id = 'box'; b.innerHTML = '<i></i>'; $('#stage').append(b);
+    rect = findContentRect(img); drawBox(); check();
+  };
+  img.onerror = () => $('#msg').textContent = 'File frame bukan gambar yang valid';
+  img.src = URL.createObjectURL(f);
+});
+function drawBox() {
+  const b = $('#box'); if (!b || !rect) return;
+  b.style.left = rect.x / fw * 100 + '%'; b.style.top = rect.y / fh * 100 + '%';
+  b.style.width = rect.w / fw * 100 + '%'; b.style.height = rect.h / fh * 100 + '%';
+}
+(function () {
+  let mode = null, sx, sy, r0; const stage = $('#stage');
+  stage.addEventListener('pointerdown', e => {
+    if (!e.target.closest('#box') || !rect) return;
+    mode = e.target.tagName === 'I' ? 'resize' : 'move'; sx = e.clientX; sy = e.clientY; r0 = { ...rect };
+    stage.setPointerCapture(e.pointerId); e.preventDefault();
+  });
+  stage.addEventListener('pointermove', e => {
+    if (!mode) return;
+    const k = fw / stage.getBoundingClientRect().width, dx = (e.clientX - sx) * k, dy = (e.clientY - sy) * k;
+    if (mode === 'move') { rect.x = Math.round(Math.min(Math.max(0, r0.x + dx), fw - r0.w)); rect.y = Math.round(Math.min(Math.max(0, r0.y + dy), fh - r0.h)); }
+    else { rect.w = Math.round(Math.min(Math.max(40, r0.w + dx), fw - r0.x)); rect.h = Math.round(Math.min(Math.max(40, r0.h + dy), fh - r0.y)); }
+    drawBox();
+  });
+  const end = () => mode = null; stage.addEventListener('pointerup', end); stage.addEventListener('pointercancel', end);
+})();
+
+/* ======================= Generate ======================= */
+const safe = s => s.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'img';
+const toBlob = (c, type, q) => new Promise(res => c.toBlob(res, type, q));
+
+$('#go').onclick = async () => {
+  $('#msg').textContent = ''; running = true; check();
+  let items;
+  try { items = await readRows($('#fx').files[0]); } catch (e) { $('#msg').textContent = 'Gagal membaca Excel: ' + e.message; running = false; check(); return; }
+  if (!items.length) { $('#msg').textContent = 'Tidak ada link gambar di Excel'; running = false; check(); return; }
+
+  const opt = { pad: +$('#pad').value, shadow: $('#shadow').checked, rmbg: $('#rmbg').checked, fmt: $('#fmt').value };
+  const grid = $('#grid'); grid.innerHTML = ''; $('#zip').hidden = true; $('#resCard').hidden = false; $('#bar').style.width = '0';
+  items.forEach(it => {
+    it.el = document.createElement('div'); it.el.className = 'it wait';
+    it.el.innerHTML = `<div class="ph">menunggu…</div><div class="m"><b>${esc(it.sku)}</b><span>${esc(it.desc)}</span></div>`; grid.append(it.el);
+  });
+  $('#resCard').scrollIntoView({ behavior: 'smooth' });
+
+  let done = 0, bad = 0, next = 0;
+  const upd = () => { $('#bar').style.width = done / items.length * 100 + '%'; $('#stat').textContent = `${done} / ${items.length} diproses` + (bad ? ` · ${bad} gagal` : ''); };
+  async function worker() {
+    while (next < items.length) {
+      const it = items[next++];
+      try {
+        const bmp = await fetchBitmap(it.url);
+        const an = opt.rmbg ? analyze(bmp) : null;
+        const cv = compose(bmp, an, opt);
+        const png = opt.fmt === 'png';
+        it.blob = await toBlob(cv, png ? 'image/png' : 'image/jpeg', .92);
+        it.file = `${safe(it.sku)}_r${it.row}.${png ? 'png' : 'jpg'}`;
+        it.ok = true; it.mode = an ? 'cutout' : 'full';
+        const u = URL.createObjectURL(it.blob);
+        it.el.className = 'it';
+        it.el.innerHTML = `<a href="${u}" download="${esc(it.file)}"><img src="${u}"></a><div class="m"><b>${esc(it.sku)}</b><span title="${esc(it.desc)}">${esc(it.desc)}</span></div>`;
+        bmp.close && bmp.close();
+      } catch (e) {
+        it.ok = false; it.err = e.message; bad++;
+        it.el.className = 'it bad';
+        it.el.innerHTML = `<div class="ph">${esc(e.message)}</div><div class="m"><b>${esc(it.sku)}</b><span>${esc(it.desc)}</span></div>`;
+      }
+      done++; upd();
+    }
+  }
+  upd();
+  await Promise.all([worker(), worker(), worker()]);
+
+  const zb = $('#zip'); zb.hidden = false;
+  zb.onclick = async () => {
+    zb.disabled = true; zb.textContent = 'Menyiapkan ZIP…';
+    const z = new JSZip(); const csv = ['SKU,Deskripsi,Link Gambar,File Hasil,Status'];
+    const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+    items.forEach(it => { if (it.ok) z.file(it.file, it.blob); csv.push([it.sku, it.desc, it.url, it.file || '', it.ok ? 'OK' : it.err].map(q).join(',')); });
+    z.file('hasil.csv', '﻿' + csv.join('\n'));
+    const blob = await z.generateAsync({ type: 'blob' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'hasil_frame.zip'; a.click();
+    zb.disabled = false; zb.textContent = 'Download semua (ZIP)';
+  };
+  running = false; check();
+};
+</script>
+</body>
+</html>
