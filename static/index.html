@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frame Generator</title>
+<style>
+  :root{--g:#0a9f2c;--gd:#06661d;--bg:#f4f7f5;--card:#fff;--tx:#14201a;--mu:#5d6b63;--bd:#dbe3de;--err:#c62828}
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--tx)}
+  header{background:linear-gradient(90deg,var(--gd),var(--g));color:#fff;padding:18px 24px}
+  header h1{margin:0;font-size:20px} header p{margin:2px 0 0;opacity:.85;font-size:13px}
+  main{max-width:1180px;margin:0 auto;padding:20px 16px 60px;display:grid;grid-template-columns:380px 1fr;gap:20px}
+  @media(max-width:860px){main{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px}
+  .card h2{margin:0 0 12px;font-size:15px}
+  .step{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--g);color:#fff;font-size:12px;margin-right:6px}
+  .drop{display:block;border:2px dashed var(--bd);border-radius:10px;padding:14px;text-align:center;cursor:pointer;color:var(--mu);transition:.15s}
+  .drop:hover,.drop.on{border-color:var(--g);background:#f0faf2}
+  .drop b{color:var(--tx);display:block;word-break:break-all}
+  input[type=file]{display:none}
+  .stack>*+*{margin-top:14px}
+  label.row{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:14px}
+  input[type=range]{width:55%;accent-color:var(--g)} select{padding:5px 8px;border:1px solid var(--bd);border-radius:6px}
+  button.primary{width:100%;padding:12px;border:0;border-radius:10px;background:var(--g);color:#fff;font-size:16px;font-weight:600;cursor:pointer}
+  button.primary:disabled{background:#a9b9af;cursor:not-allowed}
+  button.sec{padding:9px 14px;border:1px solid var(--g);color:var(--gd);background:#fff;border-radius:8px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-block}
+  .hint{font-size:12.5px;color:var(--mu)}
+  #stage{position:relative;width:100%;max-width:520px;margin:0 auto;user-select:none;touch-action:none;border:1px solid var(--bd);border-radius:8px;overflow:hidden;background:#eee}
+  #stage img{display:block;width:100%}
+  #box{position:absolute;border:2px solid #ff6d00;background:rgba(255,109,0,.10);cursor:move}
+  #box i{position:absolute;right:-7px;bottom:-7px;width:16px;height:16px;border-radius:50%;background:#ff6d00;border:2px solid #fff;cursor:nwse-resize}
+  #empty{padding:60px 10px;text-align:center;color:var(--mu)}
+  .bar{height:10px;background:#e5ece7;border-radius:6px;overflow:hidden;margin:8px 0}
+  .bar div{height:100%;width:0;background:var(--g);transition:width .3s}
+  #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;margin-top:14px}
+  .it{border:1px solid var(--bd);border-radius:10px;overflow:hidden;background:#fff}
+  .it img{width:100%;display:block;aspect-ratio:1;object-fit:cover;background:#eee}
+  .it .m{padding:8px 10px;font-size:12.5px}.it .m b{display:block}
+  .it .m span{color:var(--mu);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .it.bad{border-color:var(--err)} .it.bad .ph{aspect-ratio:1;display:grid;place-items:center;color:var(--err);padding:10px;text-align:center;font-size:12.5px;background:#fff5f5}
+  .it.wait .ph{aspect-ratio:1;display:grid;place-items:center;color:var(--mu);background:#f0f3f1}
+  #msg{color:var(--err);font-size:13.5px;min-height:1em}
+  .right{display:flex;flex-direction:column;gap:20px}
+</style>
+</head>
+<body>
+<header><h1>Frame Generator</h1><p>Upload Excel berisi link gambar + frame, hasilnya foto utama produk otomatis tertempel di frame.</p></header>
+<main>
+  <div class="stack">
+    <div class="card stack">
+      <h2><span class="step">1</span>Upload Excel</h2>
+      <label class="drop" id="dropX"><input type="file" id="fx" accept=".xlsx,.xlsm"><b id="nx">Klik atau seret file .xlsx</b><span class="hint">Kolom link gambar terdeteksi otomatis. Jika ada banyak link dalam satu sel, dipakai link pertama.</span></label>
+    </div>
+    <div class="card stack">
+      <h2><span class="step">2</span>Upload Frame</h2>
+      <label class="drop" id="dropF"><input type="file" id="ff" accept="image/*"><b id="nf">Klik atau seret gambar frame</b><span class="hint">PNG / JPG, area kosong putih akan dipakai untuk foto.</span></label>
+    </div>
+    <div class="card stack">
+      <h2><span class="step">3</span>Pengaturan</h2>
+      <label class="row">Jarak tepi <input type="range" id="pad" min="0" max="20" value="6"><span id="padv">6%</span></label>
+      <label class="row">Bayangan lembut <input type="checkbox" id="shadow" checked></label>
+      <label class="row">Hapus background foto <input type="checkbox" id="rmbg" checked></label>
+      <label class="row">Format hasil <select id="fmt"><option value="jpg">JPG</option><option value="png">PNG</option></select></label>
+      <button class="primary" id="go" disabled>Generate</button>
+      <div id="msg"></div>
+    </div>
+  </div>
+
+  <div class="right">
+    <div class="card">
+      <h2>Area penempatan foto</h2>
+      <div id="stage"><div id="empty">Upload frame untuk melihat area penempatan</div></div>
+      <p class="hint" style="text-align:center">Kotak oranye = area foto (terdeteksi otomatis). Geser untuk memindah, tarik titik di pojok untuk mengubah ukuran.</p>
+    </div>
+    <div class="card" id="resCard" hidden>
+      <h2>Hasil</h2>
+      <div id="stat" class="hint"></div>
+      <div class="bar"><div id="bar"></div></div>
+      <a id="zip" class="sec" hidden>Download semua (ZIP)</a>
+      <div id="grid"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+const $=s=>document.querySelector(s);
+let rect=null, fw=0, fh=0, pollTimer=null;
+
+function wireDrop(zone,input,label){
+  const set=()=>{ if(input.files[0]){ $(label).textContent=input.files[0].name; zone.classList.add('on'); check(); } };
+  input.addEventListener('change',set);
+  zone.addEventListener('dragover',e=>{e.preventDefault();zone.classList.add('on')});
+  zone.addEventListener('dragleave',()=>{ if(!input.files[0]) zone.classList.remove('on') });
+  zone.addEventListener('drop',e=>{e.preventDefault(); input.files=e.dataTransfer.files; input.dispatchEvent(new Event('change'))});
+}
+wireDrop($('#dropX'),$('#fx'),'#nx');
+wireDrop($('#dropF'),$('#ff'),'#nf');
+$('#pad').oninput=e=>$('#padv').textContent=e.target.value+'%';
+function check(){ $('#go').disabled=!($('#fx').files[0] && $('#ff').files[0] && rect); }
+
+// ---- frame preview + area box
+$('#ff').addEventListener('change',async()=>{
+  const f=$('#ff').files[0]; if(!f) return;
+  rect=null; check();
+  const stage=$('#stage'); stage.innerHTML='<img id="fimg"><div id="box"><i></i></div>';
+  $('#fimg').src=URL.createObjectURL(f);
+  const fd=new FormData(); fd.append('frame',f);
+  const r=await fetch('/api/detect',{method:'POST',body:fd}); const j=await r.json();
+  if(!r.ok){ $('#msg').textContent=j.error; return; }
+  fw=j.width; fh=j.height; rect=j.rect; drawBox(); check();
+});
+function drawBox(){
+  const b=$('#box'); if(!b||!rect) return;
+  b.style.left=rect.x/fw*100+'%'; b.style.top=rect.y/fh*100+'%';
+  b.style.width=rect.w/fw*100+'%'; b.style.height=rect.h/fh*100+'%';
+}
+(function(){
+  let mode=null,sx,sy,r0;
+  const stage=$('#stage');
+  stage.addEventListener('pointerdown',e=>{
+    const b=e.target.closest('#box'); if(!b||!rect) return;
+    mode=e.target.tagName==='I'?'resize':'move'; sx=e.clientX; sy=e.clientY; r0={...rect};
+    stage.setPointerCapture(e.pointerId); e.preventDefault();
+  });
+  stage.addEventListener('pointermove',e=>{
+    if(!mode) return;
+    const k=fw/stage.getBoundingClientRect().width;
+    const dx=(e.clientX-sx)*k, dy=(e.clientY-sy)*k;
+    if(mode==='move'){
+      rect.x=Math.round(Math.min(Math.max(0,r0.x+dx),fw-r0.w));
+      rect.y=Math.round(Math.min(Math.max(0,r0.y+dy),fh-r0.h));
+    }else{
+      rect.w=Math.round(Math.min(Math.max(40,r0.w+dx),fw-r0.x));
+      rect.h=Math.round(Math.min(Math.max(40,r0.h+dy),fh-r0.y));
+    }
+    drawBox();
+  });
+  const end=()=>mode=null; stage.addEventListener('pointerup',end); stage.addEventListener('pointercancel',end);
+})();
+
+// ---- generate
+$('#go').onclick=async()=>{
+  $('#msg').textContent=''; $('#go').disabled=true;
+  const fd=new FormData();
+  fd.append('excel',$('#fx').files[0]); fd.append('frame',$('#ff').files[0]);
+  fd.append('rect',JSON.stringify(rect)); fd.append('padding',$('#pad').value);
+  fd.append('shadow',$('#shadow').checked?1:0); fd.append('remove_bg',$('#rmbg').checked?1:0);
+  fd.append('fmt',$('#fmt').value);
+  const r=await fetch('/api/start',{method:'POST',body:fd}); const j=await r.json();
+  if(!r.ok){ $('#msg').textContent=j.error; check(); return; }
+  $('#resCard').hidden=false; $('#zip').hidden=true; $('#grid').innerHTML=''; $('#bar').style.width='0';
+  $('#resCard').scrollIntoView({behavior:'smooth'});
+  poll(j.id);
+};
+function poll(id){
+  clearTimeout(pollTimer);
+  fetch('/api/job/'+id).then(r=>r.json()).then(j=>{
+    $('#bar').style.width=(j.done/j.total*100)+'%';
+    const bad=j.items.filter(i=>i.status==='error').length;
+    $('#stat').textContent=`${j.done} / ${j.total} diproses`+(bad?` · ${bad} gagal`:'');
+    const g=$('#grid');
+    j.items.forEach((it,n)=>{
+      let el=g.children[n];
+      if(!el){ el=document.createElement('div'); el.dataset.s=''; g.appendChild(el); }
+      if(el.dataset.s===(it.status||'wait')) return;
+      el.dataset.s=it.status||'wait';
+      const t=esc(it.sku), d=esc(it.desc||'');
+      if(it.status==='ok'){
+        const u=`/api/job/${id}/img/${encodeURIComponent(it.file)}`;
+        el.className='it'; el.innerHTML=`<a href="${u}?dl=1"><img src="${u}" loading="lazy"></a><div class="m"><b>${t}</b><span title="${d}">${d}</span></div>`;
+      }else if(it.status==='error'){
+        el.className='it bad'; el.innerHTML=`<div class="ph">${esc(it.error)}</div><div class="m"><b>${t}</b><span>${d}</span></div>`;
+      }else{
+        el.className='it wait'; el.innerHTML=`<div class="ph">menunggu…</div><div class="m"><b>${t}</b><span>${d}</span></div>`;
+      }
+    });
+    if(j.finished){ const z=$('#zip'); z.href=`/api/job/${id}/zip`; z.hidden=false; check(); }
+    else pollTimer=setTimeout(()=>poll(id),700);
+  });
+}
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+</script>
+</body>
+</html>

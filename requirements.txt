@@ -1,0 +1,8 @@
+flask
+requests
+openpyxl
+pillow
+numpy
+opencv-python-headless
+# opsional, hasil potong background lebih akurat untuk foto rumit:
+# rembg
