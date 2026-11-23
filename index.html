@@ -64,6 +64,14 @@
       <label class="row">Jarak tepi <input type="range" id="pad" min="0" max="20" value="6"><span id="padv">6%</span></label>
       <label class="row">Bayangan lembut <input type="checkbox" id="shadow" checked></label>
       <label class="row">Hapus background foto <input type="checkbox" id="rmbg" checked></label>
+      <div class="stack" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--bd)">
+        <div><b style="font-size:14px">Potong banner sumber</b><div class="hint">Foto di Excel berupa banner (border, logo, badge, caption). Atur potongan agar hanya area produk yang diambil. Lihat pratinjau di kanan.</div></div>
+        <label class="row">Atas <input type="range" class="trim" id="tT" min="0" max="45" value="18"><span class="tv">18%</span></label>
+        <label class="row">Bawah <input type="range" class="trim" id="tB" min="0" max="45" value="30"><span class="tv">30%</span></label>
+        <label class="row">Kiri <input type="range" class="trim" id="tL" min="0" max="45" value="5"><span class="tv">5%</span></label>
+        <label class="row">Kanan <input type="range" class="trim" id="tR" min="0" max="45" value="5"><span class="tv">5%</span></label>
+        <button class="sec" type="button" id="trim0">Tanpa potong (foto utuh)</button>
+      </div>
       <label class="row">Format hasil <select id="fmt"><option value="jpg">JPG</option><option value="png">PNG</option></select></label>
       <button class="primary" id="go" disabled>Generate</button>
       <div id="msg"></div>
@@ -75,6 +83,14 @@
       <h2>Area penempatan foto</h2>
       <div id="stage"><div id="empty">Upload frame untuk melihat area penempatan</div></div>
       <p class="hint" style="text-align:center">Kotak oranye = area foto (terdeteksi otomatis). Geser untuk memindah, tarik titik di pojok untuk mengubah ukuran.</p>
+    </div>
+    <div class="card" id="prevCard" hidden>
+      <h2>Pratinjau foto pertama</h2>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center">
+        <div style="flex:1;min-width:200px;max-width:340px"><div class="hint" style="text-align:center">Foto sumber (area terang = diambil)</div><canvas id="pvSrc" style="width:100%;border:1px solid var(--bd);border-radius:8px"></canvas></div>
+        <div style="flex:1;min-width:200px;max-width:340px"><div class="hint" style="text-align:center">Hasil di frame</div><canvas id="pvOut" style="width:100%;border:1px solid var(--bd);border-radius:8px"></canvas></div>
+      </div>
+      <div class="hint" id="pvMsg" style="text-align:center;margin-top:6px"></div>
     </div>
     <div class="card" id="resCard" hidden>
       <h2>Hasil</h2>
@@ -193,7 +209,7 @@ function analyze(bmp) {
   for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++)
     if (xx < t || xx >= w - t || yy < t || yy >= h - t) { const i = (yy * w + xx) * 4; edge.push([d[i], d[i + 1], d[i + 2]]); }
   const med = [0, 1, 2].map(ch => { const a = edge.map(p => p[ch]).sort((p, q) => p - q); return a[a.length >> 1]; });
-  const uniform = edge.filter(p => Math.max(Math.abs(p[0] - med[0]), Math.abs(p[1] - med[1]), Math.abs(p[2] - med[2])) < 30).length / edge.length > .9;
+  const uniform = edge.filter(p => Math.max(Math.abs(p[0] - med[0]), Math.abs(p[1] - med[1]), Math.abs(p[2] - med[2])) < 30).length / edge.length > .6;
   if (!uniform) return null;
 
   let m = new Uint8Array(w * h);
@@ -202,23 +218,25 @@ function analyze(bmp) {
   const r = Math.max(1, Math.round(Math.min(w, h) * .006));
   m = morph(morph(m, w, h, r, true), w, h, r, false);
 
-  // komponen terhubung: buang noise kecil
-  const lab = new Int32Array(w * h), areas = [0]; let n = 0;
+  // komponen terhubung: buang noise kecil & sisa banner (teks/badge) yang menempel di tepi potongan
+  const lab = new Int32Array(w * h), areas = [0], touch = [false]; let n = 0;
   for (let s = 0; s < w * h; s++) {
     if (!m[s] || lab[s]) continue;
-    n++; let a = 0; const st = [s]; lab[s] = n;
+    n++; let a = 0, tc = false; const st = [s]; lab[s] = n;
     while (st.length) {
       const p = st.pop(); a++; const px = p % w, py = (p / w) | 0;
+      if (px === 0 || py === 0 || px === w - 1 || py === h - 1) tc = true;
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
         const qx = px + dx, qy = py + dy; if (qx < 0 || qy < 0 || qx >= w || qy >= h) continue;
         const q = qy * w + qx; if (m[q] && !lab[q]) { lab[q] = n; st.push(q); }
       }
     }
-    areas.push(a);
+    areas.push(a); touch.push(tc);
   }
   if (!n) return null;
-  const minA = Math.max(.0008 * w * h, .02 * Math.max(...areas.slice(1)));
-  for (let i = 0; i < w * h; i++) m[i] = m[i] && areas[lab[i]] >= minA ? 1 : 0;
+  const maxA = Math.max(...areas.slice(1));
+  const keep = areas.map((a, i) => i > 0 && a >= Math.max(.0008 * w * h, .04 * maxA) && !(touch[i] && a < .25 * maxA));
+  for (let i = 0; i < w * h; i++) m[i] = m[i] && keep[lab[i]] ? 1 : 0;
 
   // isi lubang: semua yang tidak terhubung ke tepi luar = bagian produk
   const out = new Uint8Array(w * h), st = [];
@@ -245,6 +263,16 @@ function analyze(bmp) {
   mx.putImageData(id, 0, 0);
   const mg = Math.round(Math.max(x1 - x0, y1 - y0) * .01);
   return { sc, w, h, mc, box: [Math.max(0, x0 - mg), Math.max(0, y0 - mg), Math.min(w, x1 + 1 + mg), Math.min(h, y1 + 1 + mg)] };
+}
+
+/* ======================= Potong banner ======================= */
+function trimVals() { return { t: +$('#tT').value / 100, b: +$('#tB').value / 100, l: +$('#tL').value / 100, r: +$('#tR').value / 100 }; }
+function cropBitmap(bmp, tr) {
+  const sx = Math.round(bmp.width * tr.l), sy = Math.round(bmp.height * tr.t);
+  const sw = Math.max(8, Math.round(bmp.width * (1 - tr.l - tr.r))), sh = Math.max(8, Math.round(bmp.height * (1 - tr.t - tr.b)));
+  const c = document.createElement('canvas'); c.width = sw; c.height = sh;
+  const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, sw, sh); x.drawImage(bmp, sx, sy, sw, sh, 0, 0, sw, sh);
+  return c;
 }
 
 /* ======================= Komposisi ======================= */
@@ -317,6 +345,38 @@ function drawBox() {
   const end = () => mode = null; stage.addEventListener('pointerup', end); stage.addEventListener('pointercancel', end);
 })();
 
+/* ======================= Pratinjau ======================= */
+let prevBmp = null, prevToken = 0;
+async function loadPreview() {
+  const f = $('#fx').files[0]; if (!f) return;
+  const tok = ++prevToken; prevBmp = null; $('#prevCard').hidden = false; $('#pvMsg').textContent = 'Memuat foto pertama…';
+  try {
+    const rows = await readRows(f); const b = await fetchBitmap(rows[0].url);
+    if (tok !== prevToken) return; prevBmp = b; $('#pvMsg').textContent = `SKU ${rows[0].sku}`;
+  } catch (e) { if (tok === prevToken) $('#pvMsg').textContent = 'Pratinjau tidak tersedia: ' + e.message; return; }
+  updatePreview();
+}
+function updatePreview() {
+  if (!prevBmp) return;
+  const tr = trimVals(), src = $('#pvSrc'), k = Math.min(1, 520 / Math.max(prevBmp.width, prevBmp.height));
+  src.width = Math.round(prevBmp.width * k); src.height = Math.round(prevBmp.height * k);
+  const x = src.getContext('2d'); x.drawImage(prevBmp, 0, 0, src.width, src.height);
+  const rx = src.width * tr.l, ry = src.height * tr.t, rw = src.width * (1 - tr.l - tr.r), rh = src.height * (1 - tr.t - tr.b);
+  x.fillStyle = 'rgba(0,0,0,.55)'; x.fillRect(0, 0, src.width, ry); x.fillRect(0, ry + rh, src.width, src.height - ry - rh);
+  x.fillRect(0, ry, rx, rh); x.fillRect(rx + rw, ry, src.width - rx - rw, rh);
+  x.strokeStyle = '#ff6d00'; x.lineWidth = 2; x.strokeRect(rx, ry, rw, rh);
+  const out = $('#pvOut');
+  if (!frameImg || !rect) { out.width = 4; out.height = 4; return; }
+  const bmp = cropBitmap(prevBmp, tr), an = $('#rmbg').checked ? analyze(bmp) : null;
+  const r = compose(bmp, an, { pad: +$('#pad').value, shadow: $('#shadow').checked });
+  out.width = 540; out.height = Math.round(540 * fh / fw); out.getContext('2d').drawImage(r, 0, 0, out.width, out.height);
+}
+document.querySelectorAll('.trim').forEach(el => el.addEventListener('input', () => { el.nextElementSibling.textContent = el.value + '%'; updatePreview(); }));
+['#pad', '#shadow', '#rmbg'].forEach(q => $(q).addEventListener('input', updatePreview));
+$('#fx').addEventListener('change', loadPreview);
+$('#ff').addEventListener('change', () => setTimeout(updatePreview, 300));
+$('#trim0').onclick = () => { document.querySelectorAll('.trim').forEach(el => { el.value = 0; el.nextElementSibling.textContent = '0%'; }); updatePreview(); };
+
 /* ======================= Generate ======================= */
 const safe = s => s.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'img';
 const toBlob = (c, type, q) => new Promise(res => c.toBlob(res, type, q));
@@ -327,7 +387,7 @@ $('#go').onclick = async () => {
   try { items = await readRows($('#fx').files[0]); } catch (e) { $('#msg').textContent = 'Gagal membaca Excel: ' + e.message; running = false; check(); return; }
   if (!items.length) { $('#msg').textContent = 'Tidak ada link gambar di Excel'; running = false; check(); return; }
 
-  const opt = { pad: +$('#pad').value, shadow: $('#shadow').checked, rmbg: $('#rmbg').checked, fmt: $('#fmt').value };
+  const opt = { pad: +$('#pad').value, shadow: $('#shadow').checked, rmbg: $('#rmbg').checked, fmt: $('#fmt').value, trim: trimVals() };
   const grid = $('#grid'); grid.innerHTML = ''; $('#zip').hidden = true; $('#resCard').hidden = false; $('#bar').style.width = '0';
   items.forEach(it => {
     it.el = document.createElement('div'); it.el.className = 'it wait';
@@ -341,7 +401,8 @@ $('#go').onclick = async () => {
     while (next < items.length) {
       const it = items[next++];
       try {
-        const bmp = await fetchBitmap(it.url);
+        const raw = await fetchBitmap(it.url);
+        const bmp = cropBitmap(raw, opt.trim);
         const an = opt.rmbg ? analyze(bmp) : null;
         const cv = compose(bmp, an, opt);
         const png = opt.fmt === 'png';
@@ -351,7 +412,7 @@ $('#go').onclick = async () => {
         const u = URL.createObjectURL(it.blob);
         it.el.className = 'it';
         it.el.innerHTML = `<a href="${u}" download="${esc(it.file)}"><img src="${u}"></a><div class="m"><b>${esc(it.sku)}</b><span title="${esc(it.desc)}">${esc(it.desc)}</span></div>`;
-        bmp.close && bmp.close();
+        raw.close && raw.close();
       } catch (e) {
         it.ok = false; it.err = e.message; bad++;
         it.el.className = 'it bad';
