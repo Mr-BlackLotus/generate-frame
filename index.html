@@ -69,6 +69,7 @@
       </div>
       <div class="pane" id="p-local" hidden>
         <label class="drop" id="dropL"><input type="file" id="fl" accept="image/*" multiple><b id="nl">Klik atau seret gambar (bisa banyak)</b><span class="hint">JPG / PNG / WEBP. Nama file dipakai sebagai nama hasil.</span></label>
+        <label class="row" style="margin-top:8px"><span>File sudah foto produk (langsung, tanpa potong banner)</span><input type="checkbox" id="lnotrim" checked></label>
         <label class="sec" style="display:block;text-align:center;margin-top:8px;cursor:pointer;padding:8px;border:1px solid var(--g);border-radius:8px;color:var(--gd);font-weight:600">Pilih satu folder<input type="file" id="fd" webkitdirectory multiple></label>
       </div>
       <div class="hint" id="srcInfo">Belum ada gambar. Sumber bisa dicampur (Excel + link + file).</div>
@@ -303,6 +304,7 @@ function cropBitmap(bmp, tr) {
   return c;
 }
 
+const ZERO = { t: 0, b: 0, l: 0, r: 0 };
 /* Potong adaptif: lebarkan area potong bila produk menyentuh tepi (terpotong) */
 function smartCrop(raw, trim, rmbg) {
   const tr = { ...trim };
@@ -363,7 +365,7 @@ const urlRows = () => $('#urls').value.split(/\s+/).map(u => u.trim()).filter(u 
 const allItems = () => [
   ...excelRows.map(r => ({ ...r, tag: 'r' + r.row })),
   ...urlRows(),
-  ...localFiles.map((f, n) => ({ tag: 'f' + (n + 1), sku: f.name.replace(/\.[^.]+$/, ''), desc: f.name, localFile: f })),
+  ...localFiles.map((f, n) => ({ noTrim: $('#lnotrim').checked, tag: 'f' + (n + 1), sku: f.name.replace(/\.[^.]+$/, ''), desc: f.name, localFile: f })),
 ];
 function srcChanged() {
   const e = excelRows.length, u = urlRows().length, l = localFiles.length;
@@ -442,7 +444,7 @@ async function loadPreview() {
 }
 function updatePreview() {
   if (!prevBmp) return;
-  const sc2 = smartCrop(prevBmp, trimVals(), $('#rmbg').checked), tr = sc2.tr, src = $('#pvSrc'), k = Math.min(1, 520 / Math.max(prevBmp.width, prevBmp.height));
+  const sc2 = smartCrop(prevBmp, (allItems()[0] || {}).noTrim ? ZERO : trimVals(), $('#rmbg').checked), tr = sc2.tr, src = $('#pvSrc'), k = Math.min(1, 520 / Math.max(prevBmp.width, prevBmp.height));
   src.width = Math.round(prevBmp.width * k); src.height = Math.round(prevBmp.height * k);
   const x = src.getContext('2d'); x.drawImage(prevBmp, 0, 0, src.width, src.height);
   const rx = src.width * tr.l, ry = src.height * tr.t, rw = src.width * (1 - tr.l - tr.r), rh = src.height * (1 - tr.t - tr.b);
@@ -455,7 +457,7 @@ function updatePreview() {
   out.width = 540; out.height = Math.round(540 * fh / fw); out.getContext('2d').drawImage(r, 0, 0, out.width, out.height);
 }
 document.querySelectorAll('.trim').forEach(el => el.addEventListener('input', () => { el.nextElementSibling.textContent = el.value + '%'; updatePreview(); }));
-['#pad', '#shadow', '#rmbg'].forEach(q => $(q).addEventListener('input', updatePreview));
+['#pad', '#shadow', '#rmbg', '#lnotrim'].forEach(q => $(q).addEventListener('input', updatePreview));
 $('#ff').addEventListener('change', () => setTimeout(updatePreview, 300));
 $('#trim0').onclick = () => { document.querySelectorAll('.trim').forEach(el => { el.value = 0; el.nextElementSibling.textContent = '0%'; }); updatePreview(); };
 
@@ -470,6 +472,12 @@ $('#go').onclick = async () => {
 
   const opt = { pad: +$('#pad').value, shadow: $('#shadow').checked, rmbg: $('#rmbg').checked, fmt: $('#fmt').value, trim: trimVals() };
   const grid = $('#grid'); grid.innerHTML = ''; $('#zip').hidden = true; $('#resCard').hidden = false; $('#bar').style.width = '0';
+  const used = new Set();
+  items.forEach(it => {
+    let base = safe(String(it.sku)), n = 2, cand = base;
+    while (used.has(cand.toLowerCase())) cand = `${base}_${n++}`;
+    used.add(cand.toLowerCase()); it.base = cand;
+  });
   items.forEach(it => {
     it.el = document.createElement('div'); it.el.className = 'it wait';
     it.el.innerHTML = `<div class="ph">menunggu…</div><div class="m"><b>${esc(it.sku)}</b><span>${esc(it.desc)}</span></div>`; grid.append(it.el);
@@ -483,11 +491,11 @@ $('#go').onclick = async () => {
       const it = items[next++];
       try {
         const raw = await getBitmap(it);
-        const { bmp, an } = smartCrop(raw, opt.trim, opt.rmbg);
+        const { bmp, an } = smartCrop(raw, it.noTrim ? ZERO : opt.trim, opt.rmbg);
         const cv = compose(bmp, an, opt);
         const png = opt.fmt === 'png';
         it.blob = await toBlob(cv, png ? 'image/png' : 'image/jpeg', .92);
-        it.file = `${safe(it.sku)}_${it.tag}.${png ? 'png' : 'jpg'}`;
+        it.file = `${it.base}.${png ? 'png' : 'jpg'}`;
         it.ok = true; it.mode = an ? 'cutout' : 'full';
         const u = URL.createObjectURL(it.blob);
         it.el.className = 'it';
