@@ -43,17 +43,35 @@
   .it .m span{color:var(--mu);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .it.bad{border-color:var(--err)} .it.bad .ph{aspect-ratio:1;display:grid;place-items:center;color:var(--err);padding:10px;text-align:center;font-size:12.5px;background:#fff5f5}
   .it.wait .ph{aspect-ratio:1;display:grid;place-items:center;color:var(--mu);background:#f0f3f1}
+  .tabs{display:flex;gap:6px}.tabs button{flex:1;padding:7px 4px;border:1px solid var(--bd);background:#fff;border-radius:8px;cursor:pointer;font-size:13.5px;color:var(--mu)}
+  .tabs button.on{background:var(--g);border-color:var(--g);color:#fff;font-weight:600}
+  textarea{width:100%;border:1px solid var(--bd);border-radius:8px;padding:8px;font:12.5px/1.4 ui-monospace,Menlo,monospace;resize:vertical}
   #msg{color:var(--err);font-size:13.5px;min-height:1em}
   .right{display:flex;flex-direction:column;gap:20px}
 </style>
 </head>
 <body>
-<header><h1>Frame Generator</h1><p>Upload Excel berisi link gambar + frame, foto utama produk otomatis ditempel di frame. Semua diproses di browser Anda.</p></header>
+<header><h1>Frame Generator</h1><p>Ambil gambar dari Excel, daftar link, atau file di komputer + frame, foto utama produk otomatis ditempel di frame. Semua diproses di browser Anda.</p></header>
 <main>
   <div class="stack">
     <div class="card stack">
-      <h2><span class="step">1</span>Upload Excel</h2>
-      <label class="drop" id="dropX"><input type="file" id="fx" accept=".xlsx,.xlsm,.xls"><b id="nx">Klik atau seret file .xlsx</b><span class="hint">Kolom link gambar terdeteksi otomatis. Jika satu sel berisi banyak link, dipakai link pertama.</span></label>
+      <h2><span class="step">1</span>Sumber gambar</h2>
+      <div class="tabs">
+        <button type="button" class="on" data-tab="excel">Excel</button>
+        <button type="button" data-tab="url">Link URL</button>
+        <button type="button" data-tab="local">Dari komputer</button>
+      </div>
+      <div class="pane" id="p-excel">
+        <label class="drop" id="dropX"><input type="file" id="fx" accept=".xlsx,.xlsm,.xls"><b id="nx">Klik atau seret file .xlsx</b><span class="hint">Kolom link gambar terdeteksi otomatis. Jika satu sel berisi banyak link, dipakai link pertama.</span></label>
+      </div>
+      <div class="pane" id="p-url" hidden>
+        <textarea id="urls" rows="6" placeholder="Tempel link gambar, satu link per baris&#10;https://contoh.com/foto1.jpg&#10;https://contoh.com/foto2.jpg"></textarea>
+      </div>
+      <div class="pane" id="p-local" hidden>
+        <label class="drop" id="dropL"><input type="file" id="fl" accept="image/*" multiple><b id="nl">Klik atau seret gambar (bisa banyak)</b><span class="hint">JPG / PNG / WEBP. Nama file dipakai sebagai nama hasil.</span></label>
+        <label class="sec" style="display:block;text-align:center;margin-top:8px;cursor:pointer;padding:8px;border:1px solid var(--g);border-radius:8px;color:var(--gd);font-weight:600">Pilih satu folder<input type="file" id="fd" webkitdirectory multiple></label>
+      </div>
+      <div class="hint" id="srcInfo">Belum ada gambar. Sumber bisa dicampur (Excel + link + file).</div>
     </div>
     <div class="card stack">
       <h2><span class="step">2</span>Upload Frame</h2>
@@ -166,6 +184,7 @@ function findContentRect(img) {
 }
 
 /* ======================= Ambil gambar ======================= */
+async function getBitmap(it) { return it.localFile ? createImageBitmap(it.localFile) : fetchBitmap(it.url); }
 async function fetchBitmap(url) {
   const tries = [url, 'https://wsrv.nl/?url=' + encodeURIComponent(url), 'https://images.weserv.nl/?url=' + encodeURIComponent(url)];
   let last;
@@ -212,10 +231,12 @@ function analyze(bmp) {
   const uniform = edge.filter(p => Math.max(Math.abs(p[0] - med[0]), Math.abs(p[1] - med[1]), Math.abs(p[2] - med[2])) < 30).length / edge.length > .6;
   if (!uniform) return null;
 
+  const white = Math.min(...med) >= 225;
+  const thr = white ? 9 : 22;           // bg putih: tangkap juga bagian produk yang pucat/putih
   let m = new Uint8Array(w * h);
   for (let i = 0; i < w * h; i++)
-    m[i] = Math.max(Math.abs(d[i * 4] - med[0]), Math.abs(d[i * 4 + 1] - med[1]), Math.abs(d[i * 4 + 2] - med[2])) > 22 ? 1 : 0;
-  const r = Math.max(1, Math.round(Math.min(w, h) * .006));
+    m[i] = Math.max(Math.abs(d[i * 4] - med[0]), Math.abs(d[i * 4 + 1] - med[1]), Math.abs(d[i * 4 + 2] - med[2])) > thr ? 1 : 0;
+  const r = Math.max(1, Math.round(Math.min(w, h) * (white ? .01 : .006)));
   m = morph(morph(m, w, h, r, true), w, h, r, false);
 
   // komponen terhubung: buang noise kecil & sisa banner (teks/badge) yang menempel di tepi potongan
@@ -258,15 +279,18 @@ function analyze(bmp) {
   }
   const ratio = cnt / (w * h);
   if (ratio < .03 || ratio > .96) return null;
-  const white = Math.min(...med) >= 225;
-  filled = morph(filled, w, h, 1, white);          // putih: sedikit lebih lebar; berwarna: sedikit lebih sempit (buang halo)
-  if (!white) filled = morph(filled, w, h, 1, false);
-  const mc = document.createElement('canvas'); mc.width = w; mc.height = h;
-  const mx = mc.getContext('2d'), id = mx.createImageData(w, h);
-  for (let i = 0; i < w * h; i++) { id.data[i * 4 + 3] = filled[i] ? 255 : 0; }
-  mx.putImageData(id, 0, 0);
-  const mg = Math.round(Math.max(x1 - x0, y1 - y0) * .01);
-  return { clip, sc, w, h, mc, box: [Math.max(0, x0 - mg), Math.max(0, y0 - mg), Math.min(w, x1 + 1 + mg), Math.min(h, y1 + 1 + mg)] };
+  if (!white) filled = morph(filled, w, h, 1, false);   // berwarna: sempitkan sedikit (buang halo)
+  const r2 = white ? Math.max(2, Math.round(Math.max(x1 - x0, y1 - y0) * .025)) : 0;
+  const gen = white ? morph(filled, w, h, r2, true) : filled;  // putih: area alpha dilebarkan agar ujung pucat tidak terpotong (bg putih tak terlihat)
+  const mkCanvas = arr => {
+    const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    const cx = cv.getContext('2d'), id = cx.createImageData(w, h);
+    for (let i = 0; i < w * h; i++) id.data[i * 4 + 3] = arr[i] ? 255 : 0;
+    cx.putImageData(id, 0, 0); return cv;
+  };
+  const mc = mkCanvas(gen), tc = white ? mkCanvas(filled) : mc;
+  const mg = white ? r2 + 1 : Math.round(Math.max(x1 - x0, y1 - y0) * .01);
+  return { clip, sc, w, h, mc, tc, box: [Math.max(0, x0 - mg), Math.max(0, y0 - mg), Math.min(w, x1 + 1 + mg), Math.min(h, y1 + 1 + mg)] };
 }
 
 /* ======================= Potong banner ======================= */
@@ -311,8 +335,12 @@ function compose(bmp, an, o) {
   if (an) {
     p.globalCompositeOperation = 'destination-in'; p.imageSmoothingQuality = 'high';
     const [a, b, e, f] = an.box; p.drawImage(an.mc, a, b, e - a, f - b, 0, 0, nw, nh);
-    if (o.shadow) {
-      ctx.shadowColor = 'rgba(0,0,0,.30)'; ctx.shadowBlur = Math.max(4, Math.max(nw, nh) * .025); ctx.shadowOffsetY = nh * .014;
+    if (o.shadow) {   // bayangan dari siluet ketat (siluet putih, tertutup produk)
+      const sil = document.createElement('canvas'); sil.width = nw; sil.height = nh;
+      const q = sil.getContext('2d'); q.fillStyle = '#fff'; q.fillRect(0, 0, nw, nh);
+      q.globalCompositeOperation = 'destination-in'; q.drawImage(an.tc, a, b, e - a, f - b, 0, 0, nw, nh);
+      ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.30)'; ctx.shadowBlur = Math.max(4, Math.max(nw, nh) * .025); ctx.shadowOffsetY = nh * .014;
+      ctx.drawImage(sil, px, py); ctx.restore();
     }
   }
   ctx.drawImage(pc, px, py);
@@ -328,7 +356,42 @@ function wireDrop(zone, input, label) {
 }
 wireDrop($('#dropX'), $('#fx'), '#nx'); wireDrop($('#dropF'), $('#ff'), '#nf');
 $('#pad').oninput = e => $('#padv').textContent = e.target.value + '%';
-function check() { $('#go').disabled = running || !($('#fx').files[0] && $('#ff').files[0] && rect); }
+/* ======================= Sumber gambar ======================= */
+let excelRows = [], localFiles = [];
+const urlRows = () => $('#urls').value.split(/\s+/).map(u => u.trim()).filter(u => /^https?:\/\//i.test(u))
+  .map((u, n) => ({ tag: 'u' + (n + 1), sku: 'link' + (n + 1), desc: u.slice(0, 80), url: u }));
+const allItems = () => [
+  ...excelRows.map(r => ({ ...r, tag: 'r' + r.row })),
+  ...urlRows(),
+  ...localFiles.map((f, n) => ({ tag: 'f' + (n + 1), sku: f.name.replace(/\.[^.]+$/, ''), desc: f.name, localFile: f })),
+];
+function srcChanged() {
+  const e = excelRows.length, u = urlRows().length, l = localFiles.length;
+  $('#srcInfo').textContent = e + u + l ? `Siap: ${e + u + l} gambar` + ` (Excel ${e} · link ${u} · komputer ${l})` : 'Belum ada gambar. Sumber bisa dicampur (Excel + link + file).';
+  check(); loadPreview();
+}
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
+  ['excel', 'url', 'local'].forEach(t => $('#p-' + t).hidden = t !== b.dataset.tab);
+});
+$('#fx').addEventListener('change', async () => {
+  $('#msg').textContent = '';
+  try { excelRows = await readRows($('#fx').files[0]); } catch (e) { excelRows = []; $('#msg').textContent = 'Gagal membaca Excel: ' + e.message; }
+  srcChanged();
+});
+let urlTimer; $('#urls').addEventListener('input', () => { clearTimeout(urlTimer); urlTimer = setTimeout(srcChanged, 500); });
+const imgFiles = list => [...list].filter(f => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|bmp|avif)$/i.test(f.name));
+function setLocal(list) {
+  localFiles = imgFiles(list).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  $('#nl').textContent = localFiles.length ? `${localFiles.length} gambar dipilih` : 'Klik atau seret gambar (bisa banyak)';
+  $('#dropL').classList.toggle('on', localFiles.length > 0); srcChanged();
+}
+$('#fl').addEventListener('change', e => setLocal(e.target.files));
+$('#fd').addEventListener('change', e => setLocal(e.target.files));
+$('#dropL').addEventListener('dragover', e => { e.preventDefault(); $('#dropL').classList.add('on'); });
+$('#dropL').addEventListener('drop', e => { e.preventDefault(); setLocal(e.dataTransfer.files); });
+
+function check() { $('#go').disabled = running || !(allItems().length && $('#ff').files[0] && rect); }
 
 $('#ff').addEventListener('change', () => {
   const f = $('#ff').files[0]; if (!f) return;
@@ -368,11 +431,12 @@ function drawBox() {
 /* ======================= Pratinjau ======================= */
 let prevBmp = null, prevToken = 0;
 async function loadPreview() {
-  const f = $('#fx').files[0]; if (!f) return;
-  const tok = ++prevToken; prevBmp = null; $('#prevCard').hidden = false; $('#pvMsg').textContent = 'Memuat foto pertama…';
+  const first = allItems()[0]; const tok = ++prevToken; prevBmp = null;
+  if (!first) { $('#prevCard').hidden = true; return; }
+  $('#prevCard').hidden = false; $('#pvMsg').textContent = 'Memuat foto pertama…';
   try {
-    const rows = await readRows(f); const b = await fetchBitmap(rows[0].url);
-    if (tok !== prevToken) return; prevBmp = b; $('#pvMsg').textContent = `SKU ${rows[0].sku}`;
+    const b = await getBitmap(first);
+    if (tok !== prevToken) return; prevBmp = b; $('#pvMsg').textContent = first.sku;
   } catch (e) { if (tok === prevToken) $('#pvMsg').textContent = 'Pratinjau tidak tersedia: ' + e.message; return; }
   updatePreview();
 }
@@ -392,7 +456,6 @@ function updatePreview() {
 }
 document.querySelectorAll('.trim').forEach(el => el.addEventListener('input', () => { el.nextElementSibling.textContent = el.value + '%'; updatePreview(); }));
 ['#pad', '#shadow', '#rmbg'].forEach(q => $(q).addEventListener('input', updatePreview));
-$('#fx').addEventListener('change', loadPreview);
 $('#ff').addEventListener('change', () => setTimeout(updatePreview, 300));
 $('#trim0').onclick = () => { document.querySelectorAll('.trim').forEach(el => { el.value = 0; el.nextElementSibling.textContent = '0%'; }); updatePreview(); };
 
@@ -402,9 +465,8 @@ const toBlob = (c, type, q) => new Promise(res => c.toBlob(res, type, q));
 
 $('#go').onclick = async () => {
   $('#msg').textContent = ''; running = true; check();
-  let items;
-  try { items = await readRows($('#fx').files[0]); } catch (e) { $('#msg').textContent = 'Gagal membaca Excel: ' + e.message; running = false; check(); return; }
-  if (!items.length) { $('#msg').textContent = 'Tidak ada link gambar di Excel'; running = false; check(); return; }
+  const items = allItems();
+  if (!items.length) { $('#msg').textContent = 'Belum ada gambar'; running = false; check(); return; }
 
   const opt = { pad: +$('#pad').value, shadow: $('#shadow').checked, rmbg: $('#rmbg').checked, fmt: $('#fmt').value, trim: trimVals() };
   const grid = $('#grid'); grid.innerHTML = ''; $('#zip').hidden = true; $('#resCard').hidden = false; $('#bar').style.width = '0';
@@ -420,12 +482,12 @@ $('#go').onclick = async () => {
     while (next < items.length) {
       const it = items[next++];
       try {
-        const raw = await fetchBitmap(it.url);
+        const raw = await getBitmap(it);
         const { bmp, an } = smartCrop(raw, opt.trim, opt.rmbg);
         const cv = compose(bmp, an, opt);
         const png = opt.fmt === 'png';
         it.blob = await toBlob(cv, png ? 'image/png' : 'image/jpeg', .92);
-        it.file = `${safe(it.sku)}_r${it.row}.${png ? 'png' : 'jpg'}`;
+        it.file = `${safe(it.sku)}_${it.tag}.${png ? 'png' : 'jpg'}`;
         it.ok = true; it.mode = an ? 'cutout' : 'full';
         const u = URL.createObjectURL(it.blob);
         it.el.className = 'it';
@@ -447,7 +509,7 @@ $('#go').onclick = async () => {
     zb.disabled = true; zb.textContent = 'Menyiapkan ZIP…';
     const z = new JSZip(); const csv = ['SKU,Deskripsi,Link Gambar,File Hasil,Status'];
     const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-    items.forEach(it => { if (it.ok) z.file(it.file, it.blob); csv.push([it.sku, it.desc, it.url, it.file || '', it.ok ? 'OK' : it.err].map(q).join(',')); });
+    items.forEach(it => { if (it.ok) z.file(it.file, it.blob); csv.push([it.sku, it.desc, it.url || '(file komputer)', it.file || '', it.ok ? 'OK' : it.err].map(q).join(',')); });
     z.file('hasil.csv', '﻿' + csv.join('\n'));
     const blob = await z.generateAsync({ type: 'blob' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'hasil_frame.zip'; a.click();
