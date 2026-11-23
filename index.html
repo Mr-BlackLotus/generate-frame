@@ -65,11 +65,11 @@
       <label class="row">Bayangan lembut <input type="checkbox" id="shadow" checked></label>
       <label class="row">Hapus background foto <input type="checkbox" id="rmbg" checked></label>
       <div class="stack" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--bd)">
-        <div><b style="font-size:14px">Potong banner sumber</b><div class="hint">Foto di Excel berupa banner (border, logo, badge, caption). Atur potongan agar hanya area produk yang diambil. Lihat pratinjau di kanan.</div></div>
-        <label class="row">Atas <input type="range" class="trim" id="tT" min="0" max="45" value="18"><span class="tv">18%</span></label>
-        <label class="row">Bawah <input type="range" class="trim" id="tB" min="0" max="45" value="30"><span class="tv">30%</span></label>
-        <label class="row">Kiri <input type="range" class="trim" id="tL" min="0" max="45" value="5"><span class="tv">5%</span></label>
-        <label class="row">Kanan <input type="range" class="trim" id="tR" min="0" max="45" value="5"><span class="tv">5%</span></label>
+        <div><b style="font-size:14px">Potong banner sumber</b><div class="hint">Foto di Excel berupa banner (border, logo, badge, caption). Produk yang tinggi/lebar otomatis tidak akan terpotong (area potong dilebarkan sendiri). Lihat pratinjau di kanan.</div></div>
+        <label class="row">Atas <input type="range" class="trim" id="tT" min="0" max="45" value="12"><span class="tv">12%</span></label>
+        <label class="row">Bawah <input type="range" class="trim" id="tB" min="0" max="45" value="24"><span class="tv">24%</span></label>
+        <label class="row">Kiri <input type="range" class="trim" id="tL" min="0" max="45" value="4"><span class="tv">4%</span></label>
+        <label class="row">Kanan <input type="range" class="trim" id="tR" min="0" max="45" value="4"><span class="tv">4%</span></label>
         <button class="sec" type="button" id="trim0">Tanpa potong (foto utuh)</button>
       </div>
       <label class="row">Format hasil <select id="fmt"><option value="jpg">JPG</option><option value="png">PNG</option></select></label>
@@ -235,8 +235,12 @@ function analyze(bmp) {
   }
   if (!n) return null;
   const maxA = Math.max(...areas.slice(1));
-  const keep = areas.map((a, i) => i > 0 && a >= Math.max(.0008 * w * h, .04 * maxA) && !(touch[i] && a < .25 * maxA));
+  const keep = areas.map((a, i) => i > 0 && a >= Math.max(.0008 * w * h, .06 * maxA) && !(touch[i] && a < .25 * maxA));
   for (let i = 0; i < w * h; i++) m[i] = m[i] && keep[lab[i]] ? 1 : 0;
+  // apakah produk menyentuh tepi potongan (artinya kemungkinan terpotong)?
+  const clip = { top: false, bottom: false, left: false, right: false };
+  for (let i = 0; i < w; i++) { if (m[i]) clip.top = true; if (m[(h - 1) * w + i]) clip.bottom = true; }
+  for (let j = 0; j < h; j++) { if (m[j * w]) clip.left = true; if (m[j * w + w - 1]) clip.right = true; }
 
   // isi lubang: semua yang tidak terhubung ke tepi luar = bagian produk
   const out = new Uint8Array(w * h), st = [];
@@ -262,7 +266,7 @@ function analyze(bmp) {
   for (let i = 0; i < w * h; i++) { id.data[i * 4 + 3] = filled[i] ? 255 : 0; }
   mx.putImageData(id, 0, 0);
   const mg = Math.round(Math.max(x1 - x0, y1 - y0) * .01);
-  return { sc, w, h, mc, box: [Math.max(0, x0 - mg), Math.max(0, y0 - mg), Math.min(w, x1 + 1 + mg), Math.min(h, y1 + 1 + mg)] };
+  return { clip, sc, w, h, mc, box: [Math.max(0, x0 - mg), Math.max(0, y0 - mg), Math.min(w, x1 + 1 + mg), Math.min(h, y1 + 1 + mg)] };
 }
 
 /* ======================= Potong banner ======================= */
@@ -273,6 +277,22 @@ function cropBitmap(bmp, tr) {
   const c = document.createElement('canvas'); c.width = sw; c.height = sh;
   const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, sw, sh); x.drawImage(bmp, sx, sy, sw, sh, 0, 0, sw, sh);
   return c;
+}
+
+/* Potong adaptif: lebarkan area potong bila produk menyentuh tepi (terpotong) */
+function smartCrop(raw, trim, rmbg) {
+  const tr = { ...trim };
+  let bmp = cropBitmap(raw, tr), an = rmbg ? analyze(bmp) : null;
+  for (let i = 0; i < 6 && an && an.clip; i++) {
+    let ch = false;
+    if (an.clip.top && tr.t > .04) { tr.t = Math.max(.04, tr.t - .04); ch = true; }
+    if (an.clip.bottom && tr.b > .2) { tr.b = Math.max(.2, tr.b - .03); ch = true; }
+    if (an.clip.left && tr.l > .02) { tr.l = Math.max(.02, tr.l - .02); ch = true; }
+    if (an.clip.right && tr.r > .02) { tr.r = Math.max(.02, tr.r - .02); ch = true; }
+    if (!ch) break;
+    bmp = cropBitmap(raw, tr); an = analyze(bmp);
+  }
+  return { bmp, an, tr };
 }
 
 /* ======================= Komposisi ======================= */
@@ -358,7 +378,7 @@ async function loadPreview() {
 }
 function updatePreview() {
   if (!prevBmp) return;
-  const tr = trimVals(), src = $('#pvSrc'), k = Math.min(1, 520 / Math.max(prevBmp.width, prevBmp.height));
+  const sc2 = smartCrop(prevBmp, trimVals(), $('#rmbg').checked), tr = sc2.tr, src = $('#pvSrc'), k = Math.min(1, 520 / Math.max(prevBmp.width, prevBmp.height));
   src.width = Math.round(prevBmp.width * k); src.height = Math.round(prevBmp.height * k);
   const x = src.getContext('2d'); x.drawImage(prevBmp, 0, 0, src.width, src.height);
   const rx = src.width * tr.l, ry = src.height * tr.t, rw = src.width * (1 - tr.l - tr.r), rh = src.height * (1 - tr.t - tr.b);
@@ -367,8 +387,7 @@ function updatePreview() {
   x.strokeStyle = '#ff6d00'; x.lineWidth = 2; x.strokeRect(rx, ry, rw, rh);
   const out = $('#pvOut');
   if (!frameImg || !rect) { out.width = 4; out.height = 4; return; }
-  const bmp = cropBitmap(prevBmp, tr), an = $('#rmbg').checked ? analyze(bmp) : null;
-  const r = compose(bmp, an, { pad: +$('#pad').value, shadow: $('#shadow').checked });
+  const r = compose(sc2.bmp, sc2.an, { pad: +$('#pad').value, shadow: $('#shadow').checked });
   out.width = 540; out.height = Math.round(540 * fh / fw); out.getContext('2d').drawImage(r, 0, 0, out.width, out.height);
 }
 document.querySelectorAll('.trim').forEach(el => el.addEventListener('input', () => { el.nextElementSibling.textContent = el.value + '%'; updatePreview(); }));
@@ -402,8 +421,7 @@ $('#go').onclick = async () => {
       const it = items[next++];
       try {
         const raw = await fetchBitmap(it.url);
-        const bmp = cropBitmap(raw, opt.trim);
-        const an = opt.rmbg ? analyze(bmp) : null;
+        const { bmp, an } = smartCrop(raw, opt.trim, opt.rmbg);
         const cv = compose(bmp, an, opt);
         const png = opt.fmt === 'png';
         it.blob = await toBlob(cv, png ? 'image/png' : 'image/jpeg', .92);
